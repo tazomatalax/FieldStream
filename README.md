@@ -207,7 +207,7 @@ This system is designed for deployment across **three separate machines**:
 
 ```bash
 # Clone repository
-git clone <repository-url>
+git clone https://github.com/tazomatalax/FieldStream
 cd data-websocket
 
 # Generate certificates for your domain
