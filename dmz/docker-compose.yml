@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  caddy:
+    image: caddy:latest
+    container_name: caddy-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - dmz-web
+    environment:
+      - DOMAIN_NAME=${DOMAIN_NAME}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+
+  websocket-server:
+    build: ./websocket-server
+    container_name: websocket-server
+    restart: unless-stopped
+    environment:
+      - MQTT_HOST=mqtt-broker
+      - MQTT_PORT=8883
+      - CERT_PATH=/certs
+    volumes:
+      - ../certs:/certs:ro
+    networks:
+      - dmz-web
+      - dmz-mqtt
+    depends_on:
+      - mqtt-broker
+
+  mqtt-broker:
+    image: eclipse-mosquitto:latest
+    container_name: dmz-mqtt-broker
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - ../certs:/mosquitto/certs:ro
+      - mqtt_data:/mosquitto/data
+    networks:
+      - dmz-mqtt
+      - dmz-internal-bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  mqtt_data:
+
+networks:
+  dmz-web:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.1.0/24
+  dmz-mqtt:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.2.0/24
+  dmz-internal-bridge:
+    driver: bridge
+    internal: true # This network is not exposed externally
+    ipam:
+      config:
+        - subnet: 172.20.3.0/24

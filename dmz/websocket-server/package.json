@@ -1,0 +1,9 @@
+{
+  "name": "websocket-server",
+  "version": "1.0.0",
+  "main": "src/server.js",
+  "dependencies": {
+    "mqtt": "^4.3.7",
+    "ws": "^8.11.0"
+  }
+}

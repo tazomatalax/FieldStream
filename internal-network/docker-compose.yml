@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  data-distributor:
+    build: ./data-distributor
+    container_name: data-distributor
+    restart: unless-stopped
+    environment:
+      - MQTT_HOST=internal-mqtt-broker
+      - MQTT_PORT=8883
+      - CERT_PATH=/certs
+      # InfluxDB Configuration
+      - INFLUXDB_URL=${INFLUXDB_URL}
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
+      - INFLUXDB_ORG=${INFLUXDB_ORG}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET}
+      # InfluxDB v1.x support (legacy)
+      - INFLUXDB_DATABASE=${INFLUXDB_DATABASE}
+      - INFLUXDB_USERNAME=${INFLUXDB_USERNAME}
+      - INFLUXDB_PASSWORD=${INFLUXDB_PASSWORD}
+      # File Storage
+      - FILE_STORAGE_PATH=${FILE_STORAGE_PATH:-/data/files}
+      - FILE_STORAGE_TYPE=${FILE_STORAGE_TYPE:-local}
+    volumes:
+      - ../certs:/certs:ro
+      - file_storage:/data/files
+    networks:
+      - internal-net
+    depends_on:
+      - internal-mqtt-broker
+
+  internal-mqtt-broker:
+    image: eclipse-mosquitto:latest
+    container_name: internal-mqtt-broker
+    restart: unless-stopped
+    ports:
+      # Expose to host for the DMZ bridge to connect
+      - "18883:8883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - ../certs:/mosquitto/certs:ro
+      - internal_mqtt_data:/mosquitto/data
+    networks:
+      - internal-net
+
+volumes:
+  internal_mqtt_data:
+  file_storage:
+
+networks:
+  internal-net:
+    driver: bridge

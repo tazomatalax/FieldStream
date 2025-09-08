@@ -1,0 +1,142 @@
+# Environment files (contain secrets and configuration)
+.env
+.env.local
+.env.production
+.env.staging
+.env.development
+.env.dmz
+.env.internal
+.env.field
+
+# Certificates and keys (CRITICAL - never commit these!)
+certs/
+*.crt
+*.key
+*.pem
+*.p12
+*.pfx
+ca-key.pem
+ca.pem
+server-key.pem
+server.pem
+client-key.pem
+client.pem
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data and temp files
+tmp/
+temp/
+.tmp/
+*.tmp
+*.temp
+
+# Data directories (may contain sensitive field data)
+data/
+uploads/
+files/
+storage/
+
+# Backup files
+*.backup
+*.bak
+*.swp
+*.swo
+*~
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# SSH keys (in case someone accidentally puts them here)
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*.ssh
+
+# Production database dumps or exports
+*.sql
+*.dump
+*.db
+
+# InfluxDB exports
+*.influx
+*.flux
+
+# Terraform state (if you add infrastructure as code later)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Local configuration overrides
+config.local.json
+settings.local.json
+local-config.yml
+
+# Setup Docs
+.context/
+.claude/

@@ -1,0 +1,13 @@
+{$DOMAIN_NAME} {
+    # Automatic HTTPS with Let's Encrypt
+    tls {$ADMIN_EMAIL}
+
+    # Reverse proxy WebSocket traffic to the internal service
+    reverse_proxy /ws websocket-server:8080
+
+    # Security Headers and Logging
+    encode gzip
+    log {
+        output file /var/log/caddy/access.log
+    }
+}

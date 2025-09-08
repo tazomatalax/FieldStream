@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  field-client:
+    build: .
+    container_name: field-client
+    restart: unless-stopped
+    environment:
+      - SERVER_URL=wss://${DOMAIN_NAME}/ws
+      - DEVICE_ID=${DEVICE_ID}
+      - CERT_PATH=/certs
+    volumes:
+      - ../certs:/certs:ro

@@ -1,0 +1,10 @@
+{
+  "name": "data-distributor",
+  "version": "1.0.0",
+  "main": "src/distributor.js",
+  "dependencies": {
+    "mqtt": "^4.3.7",
+    "@influxdata/influxdb-client": "^1.33.2",
+    "influx": "^5.9.2"
+  }
+}
