@@ -53,7 +53,7 @@ graph TB
         subgraph "Internal Services"
             INTMQ[Internal MQTT Broker<br/>:8883 mTLS]
             DIST[Data Distributor]
-            INFLUX[InfluxDB<br/>(Your Existing)]
+            INFLUX[InfluxDB]
             STORAGE[File Storage<br/>Images/Documents]
         end
     end
@@ -195,7 +195,7 @@ This system is designed for deployment across **three separate machines**:
 - Ports 80/443 accessible from internet
 
 ### Internal Network
-- InfluxDB instance (your existing setup)
+- InfluxDB instance
 - Network connectivity to DMZ server (VPN/tunnel)
 - File storage system for non-time-series data
 
