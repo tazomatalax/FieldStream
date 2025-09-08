@@ -21,7 +21,7 @@ fi
 # Get device ID from command line or prompt
 DEVICE_ID="$1"
 if [ -z "$DEVICE_ID" ]; then
-    echo -n "Enter device ID (e.g., hydrogel-site-01): "
+    echo -n "Enter device ID (e.g., process-site-01): "
     read -r DEVICE_ID
 fi
 
@@ -121,7 +121,7 @@ RETRY_BACKOFF_MS=1000
 # Device metadata (customize as needed)
 DEVICE_TYPE=sensor
 DEVICE_LOCATION=field-site
-DEVICE_MODEL=hydrogel-monitor
+DEVICE_MODEL=process-monitor
 RESEARCHER_NAME=researcher.name
 
 # Logging

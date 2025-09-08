@@ -39,17 +39,17 @@ cp .env.example .env
 nano .env
 
 # Set these required values:
-DEVICE_ID=your-unique-device-name       # e.g., "hydrogel-site-alpha-01"
+DEVICE_ID=your-unique-device-name       # e.g., "process-site-alpha-01"
 DOMAIN_NAME=data.yourcompany.com        # Provided by IT
 ```
 
 **Example configuration:**
 ```env
-DEVICE_ID=hydrogel-greenhouse-03
+DEVICE_ID=process-greenhouse-03
 DOMAIN_NAME=data.mycompany.com
 DEVICE_LOCATION=greenhouse-complex-north
 RESEARCHER_NAME=jane.smith
-PROJECT_ID=hydrogel-2024-study
+PROJECT_ID=process-2024-study
 ```
 
 ### Step 3: Test Connectivity
@@ -105,7 +105,7 @@ docker-compose logs -f --tail=50
 # Connection Status: ✓ Connected to data.mycompany.com
 # Data Sent: 1,247 messages (last: 2 seconds ago)
 # Errors: 0
-# Device ID: hydrogel-greenhouse-03
+# Device ID: process-greenhouse-03
 # Uptime: 2 days, 3 hours
 ```
 
@@ -298,7 +298,7 @@ sendData(alert);
 ## 🎯 Best Practices
 
 ### Device Naming
-- Use descriptive, unique names: `hydrogel-site-a-sensor-01`
+- Use descriptive, unique names: `process-site-a-sensor-01`
 - Include location and purpose: `greenhouse-temp-humidity-main`
 - Avoid spaces and special characters
 

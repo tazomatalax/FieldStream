@@ -102,7 +102,7 @@ fi
 # Check for unique device ID
 if [ "$DEVICE_ID" = "field-device-001" ]; then
     test_warning "Using default device ID - consider setting a unique name"
-    echo "  → Example: DEVICE_ID=hydrogel-greenhouse-01"
+    echo "  → Example: DEVICE_ID=process-greenhouse-01"
 fi
 
 # Check certificate directory
