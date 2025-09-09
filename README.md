@@ -2,7 +2,7 @@
 
 **Secure Field-to-Corporate Data Streaming**
 
-FieldStream is a production-ready, secure data streaming system designed for researchers and field devices. It safely bridges the gap between remote IoT sensors and corporate networks using WebSocket and MQTT protocols with Zero Trust security principles, end-to-end encryption, and automated certificate management.
+FieldStream is a secure data streaming system designed for researchers and field devices. It safely bridges the gap between remote IoT sensors and corporate networks using WebSocket and MQTT protocols with Zero Trust security principles, end-to-end encryption, and automated certificate management.
 
 ## 🎯 Why FieldStream?
 
