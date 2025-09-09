@@ -86,38 +86,7 @@ graph TB
     class INFLUX,STORAGE storage
 ```
 
-### 🔒 Security Architecture
 
-```mermaid
-graph LR
-    subgraph "Security Layers"
-        subgraph "Network Security"
-            FW[Firewall Rules]
-            SEG[Micro-segmentation]
-            VPN[VPN Tunnels]
-        end
-        
-        subgraph "Transport Security" 
-            TLS[TLS 1.3 Encryption]
-            MTLS[Mutual TLS Auth]
-            CERTS[Certificate Management]
-        end
-        
-        subgraph "Application Security"
-            AUTH[Device Authentication]
-            VALID[Input Validation]
-            RATE[Rate Limiting]
-            ZT[Zero Trust Verification]
-        end
-    end
-    
-    FW --> SEG --> VPN
-    TLS --> MTLS --> CERTS  
-    AUTH --> VALID --> RATE --> ZT
-    
-    classDef security fill:#ffebee
-    class FW,SEG,VPN,TLS,MTLS,CERTS,AUTH,VALID,RATE,ZT security
-```
 
 ### 📊 Data Flow Architecture
 
