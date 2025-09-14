@@ -6,6 +6,8 @@ console.log('Starting FieldStream Field Client...');
 const SERVER_URL = process.env.SERVER_URL;
 const DEVICE_ID = process.env.DEVICE_ID;
 const CERT_PATH = process.env.CERT_PATH || '/certs';
+const TENANT_ID = process.env.TENANT_ID; // optional multi-tenant
+const DEVICE_TOKEN = process.env.DEVICE_TOKEN; // optional JWT from Admin API
 
 if (!SERVER_URL || !DEVICE_ID) {
     console.error('SERVER_URL and DEVICE_ID environment variables are required.');
@@ -32,6 +34,12 @@ function connect() {
     ws.on('open', () => {
         console.log('Connection established.');
         reconnectInterval = 1000; // Reset reconnect interval on successful connection
+        // Optional auth bootstrap for multi-tenant routing
+        if (TENANT_ID) {
+            const authMsg = { type: 'auth', tenantId: TENANT_ID, deviceId: DEVICE_ID };
+            if (DEVICE_TOKEN) authMsg.token = DEVICE_TOKEN;
+            ws.send(JSON.stringify(authMsg));
+        }
         startSendingData();
     });
 
@@ -68,6 +76,7 @@ function startSendingData() {
 
             const message = JSON.stringify({
                 deviceId: DEVICE_ID,
+                dataType: 'timeseries',
                 payload: payload
             });
 

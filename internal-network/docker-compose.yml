@@ -43,6 +43,18 @@ services:
     networks:
       - internal-net
 
+  admin-api:
+    build: ./admin-api
+    container_name: admin-api
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      - JWT_SECRET=${ADMIN_JWT_SECRET:-change-me}
+    ports:
+      - "3001:3001"
+    networks:
+      - internal-net
+
 volumes:
   internal_mqtt_data:
   file_storage:

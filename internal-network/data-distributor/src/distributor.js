@@ -269,12 +269,18 @@ const client = mqtt.connect(mqttOptions);
 client.on('connect', () => {
     console.log('Successfully connected to Internal MQTT broker.');
     
-    // Subscribe to all sensor data topics
+    // Subscribe to legacy and tenant-aware topics
     const topics = [
-        'sensors/+/data',      // All sensor data
-        'events/+/data',       // Event data
-        'commands/+/response', // Command responses
-        'files/+/data'         // File uploads
+        // Legacy topics
+        'sensors/+/data',
+        'events/+/data',
+        'commands/+/response',
+        'files/+/data',
+        // Tenant-aware topics
+        'tenants/+/devices/+/sensors/data',
+        'tenants/+/devices/+/events/data',
+        'tenants/+/devices/+/commands/response',
+        'tenants/+/devices/+/files/data'
     ];
     
     topics.forEach(topic => {
@@ -291,12 +297,24 @@ client.on('connect', () => {
 client.on('message', async (topic, message) => {
     try {
         const topicParts = topic.split('/');
-        const deviceId = topicParts[1];
+        // Support both legacy and tenant-aware topics
+        let deviceId;
+        let tenantId;
+        if (topic.startsWith('tenants/')) {
+            tenantId = topicParts[1];
+            // tenants/{tenantId}/devices/{deviceId}/.../data
+            deviceId = topicParts[3];
+        } else {
+            deviceId = topicParts[1];
+        }
         const data = JSON.parse(message.toString());
 
         console.log(`[${new Date().toISOString()}] Received data from device '${deviceId}'`);
         console.log('  Topic:', topic);
         console.log('  Data Type:', data.dataType || 'auto-detected');
+        if (tenantId) {
+            console.log('  Tenant:', tenantId);
+        }
 
         // Route data based on type
         switch (data.dataType) {

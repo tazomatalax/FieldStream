@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const WebSocket = require('ws');
 const mqtt = require('mqtt');
+const jwt = require('jsonwebtoken');
 
 console.log('Starting FieldStream WebSocket Server...');
 
@@ -35,46 +36,49 @@ function validateMessage(data) {
     return { valid: true };
 }
 
-function getMQTTTopic(deviceId, dataType, data) {
+function getMQTTTopic(deviceId, dataType, data, tenantId) {
     // Determine topic based on data type
+    const base = tenantId
+        ? `tenants/${tenantId}/devices/${deviceId}`
+        : `${dataType === 'command' ? 'commands' : 'sensors'}/${deviceId}`; // legacy fallback base for timeseries/others
     switch (dataType) {
         case 'timeseries':
-            return `sensors/${deviceId}/data`;
+            return tenantId ? `${base}/sensors/data` : `sensors/${deviceId}/data`;
         case 'file':
-            return `files/${deviceId}/data`;
+            return tenantId ? `${base}/files/data` : `files/${deviceId}/data`;
         case 'event':
-            return `events/${deviceId}/data`;
+            return tenantId ? `${base}/events/data` : `events/${deviceId}/data`;
         case 'response':
-            return `commands/${deviceId}/response`;
+            return tenantId ? `${base}/commands/response` : `commands/${deviceId}/response`;
         case 'command':
-            return `commands/${deviceId}/request`;
+            return tenantId ? `${base}/commands/request` : `commands/${deviceId}/request`;
         default:
             // Auto-detect based on content
             if (data.payload) {
                 // Check if it contains numeric sensor data
                 const hasNumericData = Object.values(data.payload).some(v => typeof v === 'number');
                 if (hasNumericData) {
-                    return `sensors/${deviceId}/data`;
+                    return tenantId ? `${base}/sensors/data` : `sensors/${deviceId}/data`;
                 }
                 
                 // Check if it's a file (has base64 data and filename)
                 if (data.payload.data && data.payload.filename) {
-                    return `files/${deviceId}/data`;
+                    return tenantId ? `${base}/files/data` : `files/${deviceId}/data`;
                 }
                 
                 // Check if it's an event (has eventType or severity)
                 if (data.payload.eventType || data.payload.severity) {
-                    return `events/${deviceId}/data`;
+                    return tenantId ? `${base}/events/data` : `events/${deviceId}/data`;
                 }
                 
                 // Check if it's a command response (has commandId and status)
                 if (data.payload.commandId && data.payload.status) {
-                    return `commands/${deviceId}/response`;
+                    return tenantId ? `${base}/commands/response` : `commands/${deviceId}/response`;
                 }
             }
             
             // Default fallback
-            return `sensors/${deviceId}/data`;
+            return tenantId ? `${base}/sensors/data` : `sensors/${deviceId}/data`;
     }
 }
 
@@ -172,6 +176,7 @@ wss.on('connection', (ws, req) => {
         ws: ws,
         ip: clientIp,
         deviceId: null,
+        tenantId: null,
         connectedAt: new Date(),
         lastActivity: new Date(),
         messageCount: 0
@@ -193,6 +198,26 @@ wss.on('connection', (ws, req) => {
             
             // Parse and validate message
             const data = JSON.parse(message.toString());
+
+            // Handle optional auth bootstrap message to attach tenant context
+            if (data.type === 'auth' && data.tenantId && data.deviceId) {
+                try {
+                    if (data.token) {
+                        const secret = process.env.ADMIN_JWT_SECRET || 'change-me';
+                        const decoded = jwt.verify(data.token, secret);
+                        if (decoded.sub !== data.deviceId || decoded.tenantId !== data.tenantId) {
+                            throw new Error('Token subject mismatch');
+                        }
+                    }
+                    connectionInfo.tenantId = data.tenantId;
+                    connectionInfo.deviceId = data.deviceId;
+                    ws.send(JSON.stringify({ type: 'auth_ack', tenantId: data.tenantId, deviceId: data.deviceId, timestamp: new Date().toISOString() }));
+                    return;
+                } catch (e) {
+                    ws.send(JSON.stringify({ type: 'error', error: 'Auth failed' }));
+                    return;
+                }
+            }
             const validation = validateMessage(data);
             
             if (!validation.valid) {
@@ -211,7 +236,7 @@ wss.on('connection', (ws, req) => {
             console.log(`  Message Size: ${JSON.stringify(data).length} bytes`);
             
             // Determine MQTT topic based on data type
-            const topic = getMQTTTopic(deviceId, data.dataType, data);
+            const topic = getMQTTTopic(deviceId, data.dataType, data, connectionInfo.tenantId);
             
             // Prepare message for MQTT (include full context)
             const mqttMessage = JSON.stringify({
@@ -222,7 +247,8 @@ wss.on('connection', (ws, req) => {
                 metadata: {
                     source: 'websocket',
                     connectionId: connId,
-                    clientIp: clientIp
+                    clientIp: clientIp,
+                    tenantId: connectionInfo.tenantId || undefined
                 }
             });
             
