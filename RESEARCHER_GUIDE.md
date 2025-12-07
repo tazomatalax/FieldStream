@@ -40,12 +40,14 @@ nano .env
 
 # Set these required values:
 DEVICE_ID=your-unique-device-name       # e.g., "process-site-alpha-01"
+TENANT_ID=your-tenant-id                # e.g., "tenant-001"
 DOMAIN_NAME=data.yourcompany.com        # Provided by IT
 ```
 
 **Example configuration:**
 ```env
 DEVICE_ID=process-greenhouse-03
+TENANT_ID=agri-research-dept
 DOMAIN_NAME=data.mycompany.com
 DEVICE_LOCATION=greenhouse-complex-north
 RESEARCHER_NAME=jane.smith

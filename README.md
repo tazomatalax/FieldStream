@@ -33,19 +33,18 @@ graph TB
     end
     
     subgraph "DMZ Server (Public Cloud/VPS)"
-        subgraph "DMZ Network Segments"
-            subgraph "Web Tier (172.20.1.0/24)"
-                CADDY[Caddy Reverse Proxy<br/>:80/:443]
-                WS[WebSocket Server<br/>:8080]
-            end
-            
-            subgraph "MQTT Tier (172.20.2.0/24)"
-                DMZMQ[DMZ MQTT Broker<br/>:8883 TLS]
-            end
-            
-            subgraph "Bridge Tier (172.20.3.0/24)"
-                BRIDGE[Internal Bridge<br/>mTLS]
-            end
+        subgraph "Web Tier (172.20.1.0/24)"
+            CADDY[Caddy Reverse Proxy<br/>:80/:443]
+            WEBUI[Admin Web UI]
+            WS[WebSocket Server<br/>:8080]
+        end
+        
+        subgraph "MQTT Tier (172.20.2.0/24)"
+            DMZMQ[DMZ MQTT Broker<br/>:8883 TLS]
+        end
+        
+        subgraph "Bridge Tier (172.20.3.0/24)"
+            BRIDGE[Internal Bridge<br/>mTLS]
         end
     end
     
@@ -53,8 +52,16 @@ graph TB
         subgraph "Internal Services"
             INTMQ[Internal MQTT Broker<br/>:8883 mTLS]
             DIST[Data Distributor]
-            INFLUX[InfluxDB]
-            STORAGE[File Storage<br/>Images/Documents]
+            API[Admin API]
+            DB[(Postgres)]
+            INFLUX[(InfluxDB)]
+            STORAGE[File Storage]
+        end
+        
+        subgraph "Monitoring Stack"
+            PROM[Prometheus]
+            GRAF[Grafana]
+            LOKI[Loki]
         end
     end
     
@@ -68,12 +75,15 @@ graph TB
     
     NET -->|Port 443/80| CADDY
     CADDY -->|Proxy| WS
+    CADDY -->|Serve| WEBUI
     WS -->|mTLS| DMZMQ
     DMZMQ -->|Bridge mTLS| BRIDGE
     BRIDGE -.->|mTLS Tunnel| INTMQ
     INTMQ -->|Subscribe| DIST
     DIST -->|Time Series| INFLUX
     DIST -->|Files| STORAGE
+    API -->|Manage| DB
+    API -->|Metrics| PROM
     
     classDef fieldDevice fill:#e1f5fe
     classDef dmzComponent fill:#fff3e0  
@@ -81,9 +91,9 @@ graph TB
     classDef storage fill:#fce4ec
     
     class FC1,FC2,FCN fieldDevice
-    class CADDY,WS,DMZMQ,BRIDGE dmzComponent
-    class INTMQ,DIST internalComponent
-    class INFLUX,STORAGE storage
+    class CADDY,WS,DMZMQ,BRIDGE,WEBUI dmzComponent
+    class INTMQ,DIST,API,DB internalComponent
+    class INFLUX,STORAGE,PROM,GRAF,LOKI storage
 ```
 
 
@@ -177,11 +187,12 @@ This system is designed for deployment across **three separate machines**:
 ```bash
 # Clone repository
 git clone https://github.com/tazomatalax/FieldStream
-cd data-websocket
+cd FieldStream
 
-# Generate certificates for your domain
-chmod +x scripts/generate-certificates.sh
-./scripts/generate-certificates.sh your-dmz-domain.com
+# Initialize Certificate Authority and generate certificates
+chmod +x scripts/cert-manager.sh
+./scripts/cert-manager.sh init
+./scripts/cert-manager.sh server your-dmz-domain.com
 
 # This creates a 'certs/' directory with all required certificates
 ```
@@ -192,10 +203,10 @@ chmod +x scripts/generate-certificates.sh
 
 ```bash
 # Transfer repository and certificates to DMZ server
-scp -r data-websocket user@dmz-server:/opt/
+scp -r FieldStream user@dmz-server:/opt/
 
 # On DMZ server
-cd /opt/data-websocket
+cd /opt/FieldStream
 
 # Configure environment
 cp .env.example .env
@@ -203,7 +214,7 @@ nano .env
 # Set DOMAIN_NAME=your-actual-domain.com
 # Set ADMIN_EMAIL=your-email@domain.com
 
-# Deploy DMZ services
+# Deploy DMZ services (Caddy, WebSocket Server, MQTT Broker, Web Admin)
 cd dmz/
 docker-compose up --build -d
 
@@ -217,19 +228,23 @@ docker-compose logs -f
 
 ```bash
 # Transfer repository and certificates to internal server
-scp -r data-websocket user@internal-server:/opt/
+scp -r FieldStream user@internal-server:/opt/
 
 # On internal server
-cd /opt/data-websocket
+cd /opt/FieldStream
 
 # Configure environment for internal network
 cp .env.example .env.internal
 nano .env.internal
-# Configure InfluxDB settings (see configuration section below)
+# Configure InfluxDB settings and Postgres credentials
 
-# Deploy internal services
+# Deploy internal services (MQTT, Data Distributor, Admin API, Postgres)
 cd internal-network/
 docker-compose -f docker-compose.yml --env-file ../.env.internal up --build -d
+
+# Deploy monitoring stack (Prometheus, Grafana, Loki)
+cd ../monitoring/
+docker-compose up -d
 
 # Verify deployment
 docker-compose logs -f
@@ -241,14 +256,15 @@ docker-compose logs -f
 
 ```bash
 # Transfer client components and certificates
-scp -r data-websocket/field-client user@field-device:/opt/
-scp -r data-websocket/certs user@field-device:/opt/field-client/
+scp -r FieldStream/field-client user@field-device:/opt/
+scp -r FieldStream/certs user@field-device:/opt/field-client/
 
 # On field device
 cd /opt/field-client
 
-# Configure unique device ID
+# Configure device identity
 export DEVICE_ID="field-device-$(hostname)-$(date +%s)"
+export TENANT_ID="tenant-001"
 export DOMAIN_NAME="your-dmz-domain.com"
 
 # Deploy field client
@@ -271,15 +287,21 @@ INFLUXDB_TOKEN=your-influx-api-token
 INFLUXDB_ORG=your-organization
 INFLUXDB_BUCKET=sensor-data
 
-# InfluxDB v1.x (if using legacy version)
-INFLUXDB_URL=http://your-influx-server:8086
-INFLUXDB_DATABASE=sensor_data
-INFLUXDB_USERNAME=your-username
-INFLUXDB_PASSWORD=your-password
+# Multi-tenancy Strategy
+# 'tags': Single bucket, tenant_id added as tag (simpler)
+# 'buckets': Separate bucket per tenant (stronger isolation)
+INFLUX_TENANT_STRATEGY=tags
 
-# File Storage
-FILE_STORAGE_PATH=/data/files
-FILE_STORAGE_TYPE=local  # Options: local, s3, azure, gcs
+# Postgres Configuration
+POSTGRES_USER=fieldstream
+POSTGRES_PASSWORD=secure-password
+POSTGRES_DB=fieldstream
+
+# OIDC Configuration (Optional)
+OIDC_ENABLED=true
+OIDC_ISSUER_URL=https://login.microsoftonline.com/...
+OIDC_CLIENT_ID=your-client-id
+OIDC_CLIENT_SECRET=your-client-secret
 ```
 
 ### Supported Data Types
