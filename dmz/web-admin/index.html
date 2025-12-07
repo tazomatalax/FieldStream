@@ -6,56 +6,139 @@
     <title>FieldStream Admin</title>
     <style>
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
-      header { display: flex; align-items: baseline; gap: 12px; }
+      header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
       h1 { margin: 0; }
       section { margin-top: 24px; }
       input, button, select { padding: 8px; margin: 4px 0; }
-      .row { display: flex; gap: 8px; align-items: center; }
+      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
       .card { border: 1px solid #ddd; padding: 12px; border-radius: 8px; margin: 8px 0; }
       code { background: #f5f5f5; padding: 2px 4px; border-radius: 4px; }
+      .user-info { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+      .role-badge { 
+        background: #e3f2fd; 
+        color: #1565c0; 
+        padding: 2px 8px; 
+        border-radius: 12px; 
+        font-size: 12px; 
+        text-transform: uppercase;
+      }
+      .role-badge.admin { background: #ffebee; color: #c62828; }
+      .role-badge.operator { background: #e8f5e9; color: #2e7d32; }
+      .role-badge.auditor { background: #fff3e0; color: #ef6c00; }
+      .hidden { display: none; }
+      .login-section { text-align: center; padding: 48px; }
+      .btn-login { 
+        background: #1976d2; 
+        color: white; 
+        border: none; 
+        padding: 12px 24px; 
+        border-radius: 4px; 
+        cursor: pointer; 
+        font-size: 16px;
+      }
+      .btn-login:hover { background: #1565c0; }
+      .btn-logout { 
+        background: transparent; 
+        border: 1px solid #ddd; 
+        padding: 4px 12px; 
+        border-radius: 4px; 
+        cursor: pointer;
+      }
+      .disabled { opacity: 0.5; pointer-events: none; }
+      .audit-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+      .audit-table th, .audit-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+      .audit-table th { background: #f5f5f5; }
     </style>
   </head>
   <body>
     <header>
       <h1>FieldStream Admin</h1>
       <span id="status"></span>
+      <div class="user-info" id="userInfo">
+        <span id="userName"></span>
+        <span id="userRole" class="role-badge"></span>
+        <button class="btn-logout" onclick="logout()">Logout</button>
+      </div>
     </header>
 
-    <section>
-      <h2>Tenants</h2>
-      <div class="row">
-        <input id="tenantName" placeholder="Tenant name" />
-        <button onclick="createTenant()">Create Tenant</button>
-        <button onclick="loadTenants()">Refresh</button>
-      </div>
-      <div id="tenants"></div>
-    </section>
-
-    <section>
-      <h2>Devices</h2>
-      <div class="row">
-        <select id="tenantSelect"></select>
-        <input id="deviceId" placeholder="Device ID (optional)" />
-        <input id="deviceName" placeholder="Device name" />
-        <button onclick="createDevice()">Create Device</button>
-        <button onclick="loadDevices()">Load Devices</button>
-      </div>
-      <div id="devices"></div>
-    </section>
-
-    <section>
-      <h2>Issue Device Token</h2>
-      <div class="row">
-        <select id="tenantSelectToken"></select>
-        <input id="deviceIdToken" placeholder="Device ID" />
-        <button onclick="issueToken()">Issue Token</button>
-      </div>
-      <pre id="tokenOut"></pre>
-      <p>Use token by sending an initial WebSocket message after connect:<br />
-        <code>{"type":"auth","tenantId":"TENANT","deviceId":"DEVICE","token":"..."}</code>
+    <div id="loginSection" class="login-section hidden">
+      <h2>Authentication Required</h2>
+      <p>Please log in to access the admin panel.</p>
+      <button class="btn-login" onclick="login()">Login with SSO</button>
+      <p style="margin-top: 24px; color: #666; font-size: 14px;">
+        Or use API key authentication for programmatic access.
       </p>
-    </section>
+    </div>
+
+    <div id="mainContent">
+      <section id="tenantSection">
+        <h2>Tenants</h2>
+        <div class="row">
+          <input id="tenantName" placeholder="Tenant name" />
+          <button id="btnCreateTenant" onclick="createTenant()">Create Tenant</button>
+          <button onclick="loadTenants()">Refresh</button>
+        </div>
+        <div id="tenants"></div>
+      </section>
+
+      <section id="deviceSection">
+        <h2>Devices</h2>
+        <div class="row">
+          <select id="tenantSelect"></select>
+          <input id="deviceId" placeholder="Device ID (optional)" />
+          <input id="deviceName" placeholder="Device name" />
+          <button id="btnCreateDevice" onclick="createDevice()">Create Device</button>
+          <button onclick="loadDevices()">Load Devices</button>
+        </div>
+        <div id="devices"></div>
+      </section>
+
+      <section id="tokenSection">
+        <h2>Issue Device Token</h2>
+        <div class="row">
+          <select id="tenantSelectToken"></select>
+          <input id="deviceIdToken" placeholder="Device ID" />
+          <button id="btnIssueToken" onclick="issueToken()">Issue Token</button>
+        </div>
+        <pre id="tokenOut"></pre>
+        <p>Use token by sending an initial WebSocket message after connect:<br />
+          <code>{"type":"auth","tenantId":"TENANT","deviceId":"DEVICE","token":"..."}</code>
+        </p>
+      </section>
+
+      <section id="auditSection">
+        <h2>Audit Logs</h2>
+        <div class="row">
+          <select id="auditTenantFilter">
+            <option value="">All Tenants</option>
+          </select>
+          <select id="auditActionFilter">
+            <option value="">All Actions</option>
+            <option value="CREATE_TENANT">Create Tenant</option>
+            <option value="DELETE_TENANT">Delete Tenant</option>
+            <option value="CREATE_DEVICE">Create Device</option>
+            <option value="DELETE_DEVICE">Delete Device</option>
+            <option value="ISSUE_TOKEN">Issue Token</option>
+            <option value="REVOKE_TOKEN">Revoke Token</option>
+          </select>
+          <button onclick="loadAuditLogs()">Load Logs</button>
+        </div>
+        <table class="audit-table" id="auditTable">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Action</th>
+              <th>Actor</th>
+              <th>Tenant</th>
+              <th>Device</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="auditLogs"></tbody>
+        </table>
+      </section>
+    </div>
 
     <script src="/admin/script.js"></script>
   </body>
-  </html>
+</html>

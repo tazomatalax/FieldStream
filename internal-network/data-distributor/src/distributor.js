@@ -11,26 +11,40 @@ const CERT_PATH = process.env.CERT_PATH || '/certs';
 const FILE_STORAGE_PATH = process.env.FILE_STORAGE_PATH || '/data/files';
 const FILE_STORAGE_TYPE = process.env.FILE_STORAGE_TYPE || 'local';
 
+// Multi-tenancy strategy: 'tags' (single bucket with tenant tags) or 'buckets' (per-tenant buckets)
+const INFLUX_TENANT_STRATEGY = process.env.INFLUX_TENANT_STRATEGY || 'tags';
+
 // --- InfluxDB Configuration ---
 let influxClient;
 let influxWriteApi;
+let influxOrg;
+
+// Tenant bucket cache (for 'buckets' strategy)
+const tenantBuckets = new Map();
 
 // Initialize InfluxDB client (v2.x)
 if (process.env.INFLUXDB_URL && process.env.INFLUXDB_TOKEN) {
     const { InfluxDB, Point } = require('@influxdata/influxdb-client');
+    const { BucketsAPI } = require('@influxdata/influxdb-client-apis');
     
     influxClient = new InfluxDB({
         url: process.env.INFLUXDB_URL,
         token: process.env.INFLUXDB_TOKEN
     });
     
-    influxWriteApi = influxClient.getWriteApi(
-        process.env.INFLUXDB_ORG,
-        process.env.INFLUXDB_BUCKET,
-        'ms'
-    );
+    influxOrg = process.env.INFLUXDB_ORG;
     
-    console.log('InfluxDB v2.x client initialized');
+    // Default write API for shared bucket (tags strategy)
+    if (INFLUX_TENANT_STRATEGY === 'tags') {
+        influxWriteApi = influxClient.getWriteApi(
+            influxOrg,
+            process.env.INFLUXDB_BUCKET,
+            'ms'
+        );
+        console.log(`InfluxDB v2.x client initialized (strategy: tags, bucket: ${process.env.INFLUXDB_BUCKET})`);
+    } else {
+        console.log(`InfluxDB v2.x client initialized (strategy: buckets)`);
+    }
 }
 // Initialize InfluxDB client (v1.x legacy)
 else if (process.env.INFLUXDB_DATABASE && process.env.INFLUXDB_URL) {
@@ -48,8 +62,66 @@ else if (process.env.INFLUXDB_DATABASE && process.env.INFLUXDB_URL) {
     console.log('InfluxDB v1.x client initialized');
 }
 
+// Get or create tenant bucket (for 'buckets' strategy)
+async function getTenantBucket(tenantId) {
+    if (!tenantId || INFLUX_TENANT_STRATEGY !== 'buckets') {
+        return process.env.INFLUXDB_BUCKET;
+    }
+    
+    const bucketName = `tenant-${tenantId}`;
+    
+    if (tenantBuckets.has(tenantId)) {
+        return tenantBuckets.get(tenantId);
+    }
+    
+    try {
+        const { BucketsAPI } = require('@influxdata/influxdb-client-apis');
+        const bucketsAPI = new BucketsAPI(influxClient);
+        
+        // Try to find existing bucket
+        const buckets = await bucketsAPI.getBuckets({ name: bucketName, orgID: influxOrg });
+        
+        if (buckets.buckets && buckets.buckets.length > 0) {
+            tenantBuckets.set(tenantId, bucketName);
+            console.log(`Found existing bucket for tenant ${tenantId}`);
+            return bucketName;
+        }
+        
+        // Create new bucket for tenant
+        const retentionDays = parseInt(process.env.INFLUXDB_RETENTION_DAYS || '30');
+        await bucketsAPI.postBuckets({
+            body: {
+                name: bucketName,
+                orgID: influxOrg,
+                retentionRules: [{
+                    type: 'expire',
+                    everySeconds: retentionDays * 24 * 60 * 60
+                }]
+            }
+        });
+        
+        tenantBuckets.set(tenantId, bucketName);
+        console.log(`Created new bucket for tenant ${tenantId} with ${retentionDays} day retention`);
+        return bucketName;
+    } catch (error) {
+        console.error(`Error managing bucket for tenant ${tenantId}:`, error.message);
+        // Fallback to default bucket
+        return process.env.INFLUXDB_BUCKET;
+    }
+}
+
+// Get write API for tenant
+function getWriteApiForTenant(tenantId) {
+    if (INFLUX_TENANT_STRATEGY === 'tags' || !tenantId) {
+        return influxWriteApi;
+    }
+    
+    const bucketName = tenantBuckets.get(tenantId) || `tenant-${tenantId}`;
+    return influxClient.getWriteApi(influxOrg, bucketName, 'ms');
+}
+
 // --- Data Processing Functions ---
-async function handleTimeSeriesData(deviceId, data) {
+async function handleTimeSeriesData(deviceId, data, tenantId = null) {
     if (!influxClient) {
         console.warn('No InfluxDB client configured - skipping time series data');
         return;
@@ -58,7 +130,14 @@ async function handleTimeSeriesData(deviceId, data) {
     try {
         const timestamp = new Date(data.timestamp || Date.now());
         
-        if (influxWriteApi) {
+        // Ensure bucket exists for tenant (buckets strategy)
+        if (INFLUX_TENANT_STRATEGY === 'buckets' && tenantId) {
+            await getTenantBucket(tenantId);
+        }
+        
+        const writeApi = getWriteApiForTenant(tenantId);
+        
+        if (writeApi) {
             // InfluxDB v2.x
             const { Point } = require('@influxdata/influxdb-client');
             
@@ -66,18 +145,24 @@ async function handleTimeSeriesData(deviceId, data) {
                 if (field !== 'timestamp' && typeof value === 'number') {
                     const point = new Point('sensor_data')
                         .tag('device_id', deviceId)
-                        .tag('data_type', data.dataType || 'timeseries')
-                        .floatField(field, value)
+                        .tag('data_type', data.dataType || 'timeseries');
+                    
+                    // Add tenant tag for multi-tenancy (tags strategy)
+                    if (tenantId) {
+                        point.tag('tenant_id', tenantId);
+                    }
+                    
+                    point.floatField(field, value)
                         .timestamp(timestamp);
                     
-                    influxWriteApi.writePoint(point);
+                    writeApi.writePoint(point);
                 }
             });
             
-            await influxWriteApi.flush();
-            console.log(`  -> Written time series data to InfluxDB v2.x for device '${deviceId}'`);
+            await writeApi.flush();
+            console.log(`  -> Written time series data to InfluxDB for device '${deviceId}'${tenantId ? ` (tenant: ${tenantId})` : ''}`);
             
-        } else {
+        } else if (influxClient && influxClient.writePoints) {
             // InfluxDB v1.x
             const fields = {};
             Object.entries(data.payload || data).forEach(([field, value]) => {
@@ -87,12 +172,15 @@ async function handleTimeSeriesData(deviceId, data) {
             });
             
             if (Object.keys(fields).length > 0) {
+                const tags = { 
+                    device_id: deviceId,
+                    data_type: data.dataType || 'timeseries'
+                };
+                if (tenantId) tags.tenant_id = tenantId;
+                
                 await influxClient.writePoints([{
                     measurement: 'sensor_data',
-                    tags: { 
-                        device_id: deviceId,
-                        data_type: data.dataType || 'timeseries'
-                    },
+                    tags,
                     fields: fields,
                     timestamp: timestamp
                 }]);
@@ -106,11 +194,16 @@ async function handleTimeSeriesData(deviceId, data) {
     }
 }
 
-async function handleFileData(deviceId, data) {
+async function handleFileData(deviceId, data, tenantId = null) {
     try {
         const filename = data.payload.filename || `${deviceId}_${Date.now()}.bin`;
         const fileData = Buffer.from(data.payload.data || '', 'base64');
-        const filePath = path.join(FILE_STORAGE_PATH, deviceId, filename);
+        
+        // Organize files by tenant if available
+        const basePath = tenantId 
+            ? path.join(FILE_STORAGE_PATH, tenantId, deviceId)
+            : path.join(FILE_STORAGE_PATH, deviceId);
+        const filePath = path.join(basePath, filename);
         
         // Ensure directory exists
         const dir = path.dirname(filePath);
@@ -121,52 +214,75 @@ async function handleFileData(deviceId, data) {
         // Write file
         fs.writeFileSync(filePath, fileData);
         
+        // Ensure bucket exists for tenant (buckets strategy)
+        if (INFLUX_TENANT_STRATEGY === 'buckets' && tenantId) {
+            await getTenantBucket(tenantId);
+        }
+        
+        const writeApi = getWriteApiForTenant(tenantId);
+        
         // Store metadata in InfluxDB
-        if (influxWriteApi) {
+        if (writeApi) {
             const { Point } = require('@influxdata/influxdb-client');
             const point = new Point('file_metadata')
                 .tag('device_id', deviceId)
                 .tag('filename', filename)
-                .tag('content_type', data.payload.contentType || 'application/octet-stream')
-                .intField('file_size', fileData.length)
+                .tag('content_type', data.payload.contentType || 'application/octet-stream');
+            
+            if (tenantId) point.tag('tenant_id', tenantId);
+            
+            point.intField('file_size', fileData.length)
                 .stringField('file_path', filePath)
                 .timestamp(new Date(data.payload.metadata?.timestamp || Date.now()));
                 
-            influxWriteApi.writePoint(point);
-            await influxWriteApi.flush();
+            writeApi.writePoint(point);
+            await writeApi.flush();
         }
         
-        console.log(`  -> Stored file '${filename}' (${fileData.length} bytes) for device '${deviceId}'`);
+        console.log(`  -> Stored file '${filename}' (${fileData.length} bytes) for device '${deviceId}'${tenantId ? ` (tenant: ${tenantId})` : ''}`);
         
     } catch (error) {
         console.error('Error handling file data:', error);
     }
 }
 
-async function handleEventData(deviceId, data) {
+async function handleEventData(deviceId, data, tenantId = null) {
     try {
+        // Ensure bucket exists for tenant (buckets strategy)
+        if (INFLUX_TENANT_STRATEGY === 'buckets' && tenantId) {
+            await getTenantBucket(tenantId);
+        }
+        
+        const writeApi = getWriteApiForTenant(tenantId);
+        
         // Store event in InfluxDB
-        if (influxWriteApi) {
+        if (writeApi) {
             const { Point } = require('@influxdata/influxdb-client');
             const point = new Point('events')
                 .tag('device_id', deviceId)
                 .tag('event_type', data.payload.eventType || 'unknown')
-                .tag('severity', data.payload.severity || 'info')
-                .stringField('message', data.payload.message || '')
+                .tag('severity', data.payload.severity || 'info');
+            
+            if (tenantId) point.tag('tenant_id', tenantId);
+            
+            point.stringField('message', data.payload.message || '')
                 .intField('count', 1)
                 .timestamp(new Date(data.payload.timestamp || Date.now()));
                 
-            influxWriteApi.writePoint(point);
-            await influxWriteApi.flush();
+            writeApi.writePoint(point);
+            await writeApi.flush();
         } else if (influxClient && influxClient.writePoints) {
             // InfluxDB v1.x
+            const tags = { 
+                device_id: deviceId,
+                event_type: data.payload.eventType || 'unknown',
+                severity: data.payload.severity || 'info'
+            };
+            if (tenantId) tags.tenant_id = tenantId;
+            
             await influxClient.writePoints([{
                 measurement: 'events',
-                tags: { 
-                    device_id: deviceId,
-                    event_type: data.payload.eventType || 'unknown',
-                    severity: data.payload.severity || 'info'
-                },
+                tags,
                 fields: {
                     message: data.payload.message || '',
                     count: 1
@@ -175,37 +291,50 @@ async function handleEventData(deviceId, data) {
             }]);
         }
         
-        console.log(`  -> Stored event '${data.payload.eventType}' for device '${deviceId}'`);
+        console.log(`  -> Stored event '${data.payload.eventType}' for device '${deviceId}'${tenantId ? ` (tenant: ${tenantId})` : ''}`);
         
     } catch (error) {
         console.error('Error handling event data:', error);
     }
 }
 
-async function handleResponseData(deviceId, data) {
+async function handleResponseData(deviceId, data, tenantId = null) {
     try {
+        // Ensure bucket exists for tenant (buckets strategy)
+        if (INFLUX_TENANT_STRATEGY === 'buckets' && tenantId) {
+            await getTenantBucket(tenantId);
+        }
+        
+        const writeApi = getWriteApiForTenant(tenantId);
+        
         // Store command response in InfluxDB
-        if (influxWriteApi) {
+        if (writeApi) {
             const { Point } = require('@influxdata/influxdb-client');
             const point = new Point('command_responses')
                 .tag('device_id', deviceId)
                 .tag('command_id', data.payload.commandId || 'unknown')
-                .tag('status', data.payload.status || 'unknown')
-                .stringField('result', data.payload.result || '')
+                .tag('status', data.payload.status || 'unknown');
+            
+            if (tenantId) point.tag('tenant_id', tenantId);
+            
+            point.stringField('result', data.payload.result || '')
                 .intField('response_time_ms', data.payload.responseTime || 0)
                 .timestamp(new Date(data.payload.timestamp || Date.now()));
                 
-            influxWriteApi.writePoint(point);
-            await influxWriteApi.flush();
+            writeApi.writePoint(point);
+            await writeApi.flush();
         } else if (influxClient && influxClient.writePoints) {
             // InfluxDB v1.x
+            const tags = { 
+                device_id: deviceId,
+                command_id: data.payload.commandId || 'unknown',
+                status: data.payload.status || 'unknown'
+            };
+            if (tenantId) tags.tenant_id = tenantId;
+            
             await influxClient.writePoints([{
                 measurement: 'command_responses',
-                tags: { 
-                    device_id: deviceId,
-                    command_id: data.payload.commandId || 'unknown',
-                    status: data.payload.status || 'unknown'
-                },
+                tags,
                 fields: {
                     result: data.payload.result || '',
                     response_time_ms: data.payload.responseTime || 0
@@ -214,14 +343,14 @@ async function handleResponseData(deviceId, data) {
             }]);
         }
         
-        console.log(`  -> Stored command response for device '${deviceId}'`);
+        console.log(`  -> Stored command response for device '${deviceId}'${tenantId ? ` (tenant: ${tenantId})` : ''}`);
         
     } catch (error) {
         console.error('Error handling response data:', error);
     }
 }
 
-async function handleGenericData(deviceId, data) {
+async function handleGenericData(deviceId, data, tenantId = null) {
     // Fallback handler for any other data types
     try {
         // Try to detect if it's numeric time-series data
@@ -230,22 +359,32 @@ async function handleGenericData(deviceId, data) {
         
         if (hasNumericFields) {
             console.log(`  -> Treating unknown data type as time-series for device '${deviceId}'`);
-            await handleTimeSeriesData(deviceId, data);
+            await handleTimeSeriesData(deviceId, data, tenantId);
         } else {
+            // Ensure bucket exists for tenant (buckets strategy)
+            if (INFLUX_TENANT_STRATEGY === 'buckets' && tenantId) {
+                await getTenantBucket(tenantId);
+            }
+            
+            const writeApi = getWriteApiForTenant(tenantId);
+            
             // Store as generic event
-            if (influxWriteApi) {
+            if (writeApi) {
                 const { Point } = require('@influxdata/influxdb-client');
                 const point = new Point('generic_data')
                     .tag('device_id', deviceId)
-                    .tag('data_type', data.dataType || 'unknown')
-                    .stringField('raw_data', JSON.stringify(payload))
+                    .tag('data_type', data.dataType || 'unknown');
+                
+                if (tenantId) point.tag('tenant_id', tenantId);
+                
+                point.stringField('raw_data', JSON.stringify(payload))
                     .timestamp(new Date(data.timestamp || Date.now()));
                     
-                influxWriteApi.writePoint(point);
-                await influxWriteApi.flush();
+                writeApi.writePoint(point);
+                await writeApi.flush();
             }
             
-            console.log(`  -> Stored generic data for device '${deviceId}'`);
+            console.log(`  -> Stored generic data for device '${deviceId}'${tenantId ? ` (tenant: ${tenantId})` : ''}`);
         }
         
     } catch (error) {
@@ -308,6 +447,11 @@ client.on('message', async (topic, message) => {
             deviceId = topicParts[1];
         }
         const data = JSON.parse(message.toString());
+        
+        // Extract tenant from metadata if not in topic
+        if (!tenantId && data.metadata?.tenantId) {
+            tenantId = data.metadata.tenantId;
+        }
 
         console.log(`[${new Date().toISOString()}] Received data from device '${deviceId}'`);
         console.log('  Topic:', topic);
@@ -316,35 +460,35 @@ client.on('message', async (topic, message) => {
             console.log('  Tenant:', tenantId);
         }
 
-        // Route data based on type
+        // Route data based on type (pass tenantId for multi-tenancy)
         switch (data.dataType) {
             case 'timeseries':
-                await handleTimeSeriesData(deviceId, data);
+                await handleTimeSeriesData(deviceId, data, tenantId);
                 break;
                 
             case 'file':
-                await handleFileData(deviceId, data);
+                await handleFileData(deviceId, data, tenantId);
                 break;
                 
             case 'event':
-                await handleEventData(deviceId, data);
+                await handleEventData(deviceId, data, tenantId);
                 break;
                 
             case 'response':
-                await handleResponseData(deviceId, data);
+                await handleResponseData(deviceId, data, tenantId);
                 break;
                 
             default:
                 // Auto-detect based on topic or content
-                if (topic.startsWith('files/')) {
-                    await handleFileData(deviceId, data);
-                } else if (topic.startsWith('events/')) {
-                    await handleEventData(deviceId, data);
-                } else if (topic.endsWith('/response')) {
-                    await handleResponseData(deviceId, data);
+                if (topic.includes('/files/')) {
+                    await handleFileData(deviceId, data, tenantId);
+                } else if (topic.includes('/events/')) {
+                    await handleEventData(deviceId, data, tenantId);
+                } else if (topic.includes('/response')) {
+                    await handleResponseData(deviceId, data, tenantId);
                 } else {
                     // Default to generic/time-series handling
-                    await handleGenericData(deviceId, data);
+                    await handleGenericData(deviceId, data, tenantId);
                 }
                 break;
         }

@@ -1,0 +1,44 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # FieldStream Admin API
+  - job_name: 'admin-api'
+    static_configs:
+      - targets: ['admin-api:3001']
+    metrics_path: '/metrics'
+
+  # FieldStream WebSocket Server (if metrics enabled)
+  - job_name: 'websocket-server'
+    static_configs:
+      - targets: ['websocket-server:8080']
+    metrics_path: '/metrics'
+
+  # FieldStream Data Distributor (if metrics enabled)
+  - job_name: 'data-distributor'
+    static_configs:
+      - targets: ['data-distributor:9090']
+    metrics_path: '/metrics'
+
+  # Docker containers (via cAdvisor)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  # Node exporter for host metrics
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']

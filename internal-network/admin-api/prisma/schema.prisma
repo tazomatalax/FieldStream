@@ -1,0 +1,72 @@
+// Prisma schema for FieldStream Admin API
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  devices   Device[]
+  tokens    Token[]
+  auditLogs AuditLog[]
+}
+
+model Device {
+  id        String   @id @default(uuid())
+  name      String
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tokens    Token[]
+  auditLogs AuditLog[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId])
+}
+
+model Token {
+  id        String    @id @default(uuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deviceId  String
+  device    Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  jti       String    @unique // JWT ID for revocation tracking
+  issuedAt  DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+  isRevoked Boolean   @default(false)
+
+  @@index([tenantId])
+  @@index([deviceId])
+  @@index([jti])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  timestamp  DateTime @default(now())
+  action     String   // CREATE_TENANT, DELETE_TENANT, CREATE_DEVICE, DELETE_DEVICE, ISSUE_TOKEN, REVOKE_TOKEN, etc.
+  actorId    String?  // User ID if authenticated
+  actorType  String   @default("system") // system, user, api
+  tenantId   String?
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  deviceId   String?
+  device     Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  resourceId String?  // ID of the affected resource
+  details    Json?    // Additional details as JSON
+  ipAddress  String?
+  userAgent  String?
+
+  @@index([timestamp])
+  @@index([action])
+  @@index([tenantId])
+  @@index([deviceId])
+}
